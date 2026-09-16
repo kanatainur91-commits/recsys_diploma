@@ -1,0 +1,1271 @@
+<!DOCTYPE html>
+
+<html lang="kk">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        Зияткерлік ұсыныстар жүйесі
+    </title>
+
+
+    <style>
+
+        * {
+            box-sizing: border-box;
+        }
+
+
+        body {
+
+            font-family: Arial, sans-serif;
+
+            background: #f3f4f6;
+
+            margin: 0;
+
+            padding: 30px;
+        }
+
+
+        .container {
+
+            max-width: 900px;
+
+            margin: auto;
+
+            background: white;
+
+            padding: 40px;
+
+            border-radius: 25px;
+
+            box-shadow:
+                0 5px 25px
+                rgba(0,0,0,0.08);
+        }
+
+
+        h1 {
+
+            text-align: center;
+
+            font-size: 42px;
+
+            margin-bottom: 10px;
+        }
+
+
+        .description {
+
+            text-align: center;
+
+            font-size: 20px;
+
+            color: #666;
+
+            margin-bottom: 40px;
+        }
+
+
+        .form {
+
+            text-align: center;
+
+            margin-bottom: 30px;
+        }
+
+
+        label {
+
+            display: block;
+
+            font-size: 20px;
+
+            margin-bottom: 10px;
+        }
+
+
+        input {
+
+            width: 300px;
+
+            padding: 15px;
+
+            font-size: 18px;
+
+            border: 1px solid #ccc;
+
+            border-radius: 12px;
+        }
+
+
+        button {
+
+            border: none;
+
+            border-radius: 12px;
+
+            cursor: pointer;
+
+            font-size: 17px;
+
+            padding: 14px 25px;
+
+            transition: 0.2s;
+        }
+
+
+        button:hover {
+
+            transform: translateY(-2px);
+        }
+
+
+        button:disabled {
+
+            cursor: not-allowed;
+
+            transform: none;
+
+            opacity: 0.5;
+        }
+
+
+        .main-button {
+
+            margin-top: 15px;
+
+            background: #222;
+
+            color: white;
+        }
+
+
+        .main-button:hover {
+
+            background: #444;
+        }
+
+
+        #message {
+
+            text-align: center;
+
+            margin: 30px 0;
+
+            font-size: 21px;
+
+            font-weight: bold;
+        }
+
+
+        .progress {
+
+            text-align: center;
+
+            font-size: 18px;
+
+            color: #666;
+
+            margin-bottom: 20px;
+        }
+
+
+        .movie {
+
+            border: 1px solid #ddd;
+
+            border-radius: 15px;
+
+            padding: 20px;
+
+            margin: 15px 0;
+
+            background: #fafafa;
+        }
+
+
+        .movie.selected {
+
+            background: #eeeeee;
+
+            opacity: 0.7;
+        }
+
+
+        .movie-number {
+
+            font-size: 18px;
+
+            font-weight: bold;
+
+            color: #777;
+
+            margin-bottom: 10px;
+        }
+
+
+        .movie-title {
+
+            font-size: 24px;
+
+            font-weight: bold;
+
+            margin-bottom: 10px;
+        }
+
+
+        .genres {
+
+            color: #666;
+
+            font-size: 17px;
+
+            margin-bottom: 10px;
+        }
+
+
+        .score {
+
+            font-weight: bold;
+
+            font-size: 18px;
+
+            margin-bottom: 15px;
+        }
+
+
+        .like {
+
+            background: #dff5e1;
+
+            margin-right: 10px;
+        }
+
+
+        .like:hover {
+
+            background: #c8eccb;
+        }
+
+
+        .dislike {
+
+            background: #ffe1e1;
+        }
+
+
+        .dislike:hover {
+
+            background: #ffd0d0;
+        }
+
+
+        .selected-text {
+
+            margin-top: 12px;
+
+            font-weight: bold;
+
+            color: #555;
+        }
+
+
+        .result-card {
+
+            border: 2px solid #ddd;
+
+            border-radius: 18px;
+
+            padding: 22px;
+
+            margin: 18px 0;
+
+            background: white;
+        }
+
+
+        .result-number {
+
+            font-size: 18px;
+
+            font-weight: bold;
+
+            color: #777;
+
+            margin-bottom: 10px;
+        }
+
+
+        .result-title {
+
+            font-size: 25px;
+
+            font-weight: bold;
+
+            margin-bottom: 10px;
+        }
+
+
+        .result-genres {
+
+            font-size: 17px;
+
+            color: #666;
+
+            margin-bottom: 12px;
+        }
+
+
+        .result-score {
+
+            font-size: 18px;
+
+            font-weight: bold;
+
+            margin-top: 8px;
+        }
+
+
+        .liked-info {
+
+            margin-top: 25px;
+
+            padding: 18px;
+
+            background: #f5f5f5;
+
+            border-radius: 15px;
+
+            font-size: 17px;
+
+            line-height: 1.6;
+        }
+
+
+        .restart-button {
+
+            display: block;
+
+            margin: 30px auto 0;
+
+            background: #222;
+
+            color: white;
+        }
+
+
+        .hidden {
+
+            display: none;
+        }
+
+    </style>
+
+</head>
+
+
+<body>
+
+
+<div class="container">
+
+
+    <!-- =================================================
+         ТАҚЫРЫП
+         ================================================= -->
+
+    <h1>
+
+        🎬 Зияткерлік ұсыныстар жүйесі
+
+    </h1>
+
+
+    <div class="description">
+
+        Thompson Sampling алгоритміне
+        негізделген фильмдер ұсыныс жүйесі
+
+    </div>
+
+
+    <!-- =================================================
+         ПАЙДАЛАНУШЫ ID
+         ================================================= -->
+
+    <div class="form">
+
+
+        <label for="userId">
+
+            Пайдаланушы ID:
+
+        </label>
+
+
+        <input
+
+            type="number"
+
+            id="userId"
+
+            value="1"
+
+            min="1"
+
+        >
+
+
+        <br>
+
+
+        <button
+
+            class="main-button"
+
+            onclick="startSelection()"
+
+        >
+
+            🎬 Фильмдерді таңдау
+
+        </button>
+
+
+    </div>
+
+
+    <!-- =================================================
+         ХАБАРЛАМА
+         ================================================= -->
+
+    <div id="message"></div>
+
+
+    <!-- =================================================
+         ПРОГРЕСС
+         ================================================= -->
+
+    <div
+        id="progress"
+        class="progress hidden"
+    >
+
+    </div>
+
+
+    <!-- =================================================
+         ФИЛЬМДЕР
+         ================================================= -->
+
+    <div id="movies"></div>
+
+
+    <!-- =================================================
+         ҚОРЫТЫНДЫ
+         ================================================= -->
+
+    <div
+        id="finalResult"
+        class="hidden"
+    >
+
+    </div>
+
+
+</div>
+
+
+
+<script>
+
+
+/* =====================================================
+   АЙНЫМАЛЫЛАР
+   ===================================================== */
+
+
+let selectedCount = 0;
+
+let totalMovies = 10;
+
+
+
+/* =====================================================
+   БАСТАУ
+   ===================================================== */
+
+
+async function startSelection() {
+
+
+    const userId =
+        document.getElementById(
+            "userId"
+        ).value;
+
+
+    const message =
+        document.getElementById(
+            "message"
+        );
+
+
+    const moviesContainer =
+        document.getElementById(
+            "movies"
+        );
+
+
+    const progress =
+        document.getElementById(
+            "progress"
+        );
+
+
+    const finalResult =
+        document.getElementById(
+            "finalResult"
+        );
+
+
+    if (!userId) {
+
+        message.innerHTML =
+            "❌ Пайдаланушы ID енгізіңіз.";
+
+        return;
+    }
+
+
+    selectedCount = 0;
+
+
+    moviesContainer.innerHTML = "";
+
+
+    finalResult.innerHTML = "";
+
+
+    finalResult.classList.add(
+        "hidden"
+    );
+
+
+    progress.classList.remove(
+        "hidden"
+    );
+
+
+    message.innerHTML =
+        "⏳ Фильмдер дайындалуда...";
+
+
+    try {
+
+
+        const response =
+            await fetch(
+                `/recommend?user_id=${userId}&k=10`
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Сервер қатесі"
+            );
+
+        }
+
+
+        const movies =
+            await response.json();
+
+
+        if (
+            !movies ||
+            movies.length === 0
+        ) {
+
+            message.innerHTML =
+                "❌ Фильмдер табылмады.";
+
+            return;
+        }
+
+
+        totalMovies =
+            movies.length;
+
+
+        updateProgress();
+
+
+        message.innerHTML =
+            "🎬 Фильмдерді бағалаңыз:";
+
+
+        movies.forEach(
+            (movie, index) => {
+
+                createMovieCard(
+                    movie,
+                    index,
+                    userId
+                );
+
+            }
+        );
+
+
+    } catch (error) {
+
+
+        console.error(error);
+
+
+        message.innerHTML =
+            "❌ Сервермен байланыс жоқ.";
+
+    }
+
+}
+
+
+
+/* =====================================================
+   ФИЛЬМ КАРТОЧКАСЫН ЖАСАУ
+   ===================================================== */
+
+
+function createMovieCard(
+    movie,
+    index,
+    userId
+) {
+
+
+    const container =
+        document.getElementById(
+            "movies"
+        );
+
+
+    const card =
+        document.createElement(
+            "div"
+        );
+
+
+    card.className =
+        "movie";
+
+
+    card.id =
+        `movie-${movie.movieId}`;
+
+
+    card.innerHTML = `
+
+        <div class="movie-number">
+
+            ${index + 1}-фильм
+
+        </div>
+
+
+        <div class="movie-title">
+
+            🎬 ${escapeHtml(
+                movie.title
+            )}
+
+        </div>
+
+
+        <div class="genres">
+
+            Жанр:
+            ${escapeHtml(
+                movie.genres
+            )}
+
+        </div>
+
+
+        <div class="score">
+
+            Thompson бағасы:
+            ${Number(
+                movie.score
+            ).toFixed(4)}
+
+        </div>
+
+
+        <button
+
+            class="like"
+
+            onclick="sendFeedback(
+                ${userId},
+                ${movie.movieId},
+                1
+            )"
+
+        >
+
+            👍 Ұнайды
+
+        </button>
+
+
+        <button
+
+            class="dislike"
+
+            onclick="sendFeedback(
+                ${userId},
+                ${movie.movieId},
+                0
+            )"
+
+        >
+
+            👎 Ұнамайды
+
+        </button>
+
+
+        <div
+
+            class="selected-text hidden"
+
+            id="selected-${movie.movieId}"
+
+        >
+
+        </div>
+
+    `;
+
+
+    container.appendChild(
+        card
+    );
+
+}
+
+
+
+/* =====================================================
+   FEEDBACK
+   ===================================================== */
+
+
+async function sendFeedback(
+    userId,
+    movieId,
+    reward
+) {
+
+
+    const card =
+        document.getElementById(
+            `movie-${movieId}`
+        );
+
+
+    /*
+    Бір фильмді екінші рет
+    бағалауға болмайды
+    */
+
+    if (
+        card.classList.contains(
+            "selected"
+        )
+    ) {
+
+        return;
+
+    }
+
+
+    try {
+
+
+        const response =
+            await fetch(
+
+                `/feedback?` +
+
+                `user_id=${userId}` +
+
+                `&item_id=${movieId}` +
+
+                `&reward=${reward}`,
+
+                {
+
+                    method: "POST"
+
+                }
+
+            );
+
+
+        const result =
+            await response.json();
+
+
+        if (!response.ok) {
+
+            alert(
+                result.detail ||
+                "Қате орын алды."
+            );
+
+            return;
+        }
+
+
+        /*
+        Карточканы таңдалған деп белгілеу
+        */
+
+        card.classList.add(
+            "selected"
+        );
+
+
+        /*
+        Батырмаларды өшіру
+        */
+
+        const buttons =
+            card.querySelectorAll(
+                "button"
+            );
+
+
+        buttons.forEach(
+            button => {
+
+                button.disabled = true;
+
+            }
+        );
+
+
+        /*
+        Таңдау нәтижесін көрсету
+        */
+
+        const selectedText =
+            document.getElementById(
+                `selected-${movieId}`
+            );
+
+
+        selectedText.classList.remove(
+            "hidden"
+        );
+
+
+        if (reward === 1) {
+
+            selectedText.innerHTML =
+                "👍 Сізге ұнады";
+
+        } else {
+
+            selectedText.innerHTML =
+                "👎 Сізге ұнамады";
+
+        }
+
+
+        /*
+        Прогресс
+        */
+
+        selectedCount++;
+
+
+        updateProgress();
+
+
+        /*
+        Барлық фильм бағаланған кезде
+        */
+
+        if (
+            selectedCount >= totalMovies
+        ) {
+
+
+            document
+                .getElementById(
+                    "message"
+                )
+                .innerHTML =
+
+                "🎉 Барлық фильмдер бағаланды!";
+
+
+            /*
+            Автоматты түрде
+            қорытынды нәтижені алу
+            */
+
+            await showFinalRecommendations();
+
+        }
+
+
+    } catch (error) {
+
+
+        console.error(error);
+
+
+        document
+            .getElementById(
+                "message"
+            )
+            .innerHTML =
+
+            "❌ Сервермен байланыс жоқ.";
+
+    }
+
+}
+
+
+
+/* =====================================================
+   ҚОРЫТЫНДЫ ҰСЫНЫСТАР
+   ===================================================== */
+
+
+async function showFinalRecommendations() {
+
+
+    const userId =
+        document.getElementById(
+            "userId"
+        ).value;
+
+
+    const message =
+        document.getElementById(
+            "message"
+        );
+
+
+    const moviesContainer =
+        document.getElementById(
+            "movies"
+        );
+
+
+    const progress =
+        document.getElementById(
+            "progress"
+        );
+
+
+    const finalResult =
+        document.getElementById(
+            "finalResult"
+        );
+
+
+    message.innerHTML =
+        "⏳ Таңдауларыңыз талдануда...";
+
+
+    progress.classList.add(
+        "hidden"
+    );
+
+
+    /*
+    Қорытынды ұсыныстарды алу
+    */
+
+    try {
+
+
+        const response =
+            await fetch(
+
+                `/final-recommend?user_id=${userId}&k=5`
+
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Сервер қатесі"
+            );
+
+        }
+
+
+        const recommendations =
+            await response.json();
+
+
+        /*
+        Бастапқы фильмдерді жасыру
+        */
+
+        moviesContainer.innerHTML =
+            "";
+
+
+        /*
+        Қорытынды блокты тазалау
+        */
+
+        finalResult.innerHTML =
+            "";
+
+
+        finalResult.classList.remove(
+            "hidden"
+        );
+
+
+        /*
+        Тақырып
+        */
+
+        message.innerHTML =
+            "🎯 Сізге ұнауы мүмкін фильмдер:";
+
+
+        /*
+        Әр ұсынысты шығару
+        */
+
+        recommendations.forEach(
+            (movie, index) => {
+
+
+                const card =
+                    document.createElement(
+                        "div"
+                    );
+
+
+                card.className =
+                    "result-card";
+
+
+                card.innerHTML = `
+
+                    <div class="result-number">
+
+                        ${index + 1}-ұсыныс
+
+                    </div>
+
+
+                    <div class="result-title">
+
+                        🎬 ${escapeHtml(
+                            movie.title
+                        )}
+
+                    </div>
+
+
+                    <div class="result-genres">
+
+                        Жанр:
+                        ${escapeHtml(
+                            movie.genres
+                        )}
+
+                    </div>
+
+
+                    <div class="result-score">
+
+                        Thompson бағасы:
+                        ${Number(
+                            movie.thompson_score
+                        ).toFixed(4)}
+
+                    </div>
+
+
+                    <div class="result-score">
+
+                        Жанр сәйкестігі:
+                        ${Number(
+                            movie.genre_score
+                        ).toFixed(2)}
+
+                    </div>
+
+
+                    <div class="result-score">
+
+                        Қорытынды ұпай:
+                        ${Number(
+                            movie.final_score
+                        ).toFixed(4)}
+
+                    </div>
+
+                `;
+
+
+                finalResult.appendChild(
+                    card
+                );
+
+            }
+        );
+
+
+        /*
+        Қайта бастау батырмасы
+        */
+
+        const restartButton =
+            document.createElement(
+                "button"
+            );
+
+
+        restartButton.className =
+            "restart-button";
+
+
+        restartButton.innerHTML =
+            "🔄 Қайта бағалау";
+
+
+        restartButton.onclick =
+            function() {
+
+                location.reload();
+
+            };
+
+
+        finalResult.appendChild(
+            restartButton
+        );
+
+
+    } catch (error) {
+
+
+        console.error(error);
+
+
+        message.innerHTML =
+            "❌ Қорытынды ұсыныстарды алу кезінде қате орын алды.";
+
+    }
+
+}
+
+
+
+/* =====================================================
+   ПРОГРЕСС
+   ===================================================== */
+
+
+function updateProgress() {
+
+
+    const progress =
+        document.getElementById(
+            "progress"
+        );
+
+
+    progress.innerHTML =
+
+        `Бағаланған фильмдер: ` +
+
+        `<strong>${selectedCount}</strong>` +
+
+        ` / ${totalMovies}`;
+
+}
+
+
+
+/* =====================================================
+   HTML ҚАУІПСІЗДІГІ
+   ===================================================== */
+
+
+function escapeHtml(text) {
+
+
+    if (
+        text === null ||
+        text === undefined
+    ) {
+
+        return "";
+    }
+
+
+    return String(text)
+
+        .replace(
+            /&/g,
+            "&amp;"
+        )
+
+        .replace(
+            /</g,
+            "&lt;"
+        )
+
+        .replace(
+            />/g,
+            "&gt;"
+        )
+
+        .replace(
+            /"/g,
+            "&quot;"
+        )
+
+        .replace(
+            /'/g,
+            "&#039;"
+        );
+
+}
+
+
+</script>
+
+
+</body>
+
+</html>
