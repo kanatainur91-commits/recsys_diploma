@@ -1,9 +1,15 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+
 import pandas as pd
 import numpy as np
+
 from pathlib import Path
+
+from sqlalchemy import text
+
+from database import engine, create_tables
 
 
 # =========================================================
@@ -15,6 +21,13 @@ app = FastAPI(
     description="Thompson Sampling негізіндегі фильмдер ұсынысы",
     version="1.0"
 )
+
+
+# =========================================================
+# DATABASE
+# =========================================================
+
+create_tables()
 
 
 # =========================================================
@@ -37,7 +50,9 @@ history_path = PUBLIC_DATA / "user_history.csv"
 
 
 movies = pd.read_csv(movies_path)
+
 bandit_stats = pd.read_csv(bandit_path)
+
 user_history_df = pd.read_csv(history_path)
 
 
@@ -45,17 +60,22 @@ user_history_df = pd.read_csv(history_path)
 # PREPARE MOVIE DATA
 # =========================================================
 
-# Проверяем название ID фильма
 if "movie_id" not in movies.columns:
 
     if "movieId" in movies.columns:
+
         movies = movies.rename(
-            columns={"movieId": "movie_id"}
+            columns={
+                "movieId": "movie_id"
+            }
         )
 
     elif "id" in movies.columns:
+
         movies = movies.rename(
-            columns={"id": "movie_id"}
+            columns={
+                "id": "movie_id"
+            }
         )
 
 
@@ -66,21 +86,29 @@ if "movie_id" not in movies.columns:
 if "movie_id" not in bandit_stats.columns:
 
     if "movieId" in bandit_stats.columns:
+
         bandit_stats = bandit_stats.rename(
-            columns={"movieId": "movie_id"}
+            columns={
+                "movieId": "movie_id"
+            }
         )
 
     elif "id" in bandit_stats.columns:
+
         bandit_stats = bandit_stats.rename(
-            columns={"id": "movie_id"}
+            columns={
+                "id": "movie_id"
+            }
         )
 
 
-# Если alpha/beta отсутствуют, создаём их
 if "alpha" not in bandit_stats.columns:
+
     bandit_stats["alpha"] = 1.0
 
+
 if "beta" not in bandit_stats.columns:
+
     bandit_stats["beta"] = 1.0
 
 
@@ -90,36 +118,48 @@ if "beta" not in bandit_stats.columns:
 
 user_history = {}
 
+
 if not user_history_df.empty:
 
-    # Возможные названия столбцов
     if "user_id" not in user_history_df.columns:
 
         if "userId" in user_history_df.columns:
+
             user_history_df = user_history_df.rename(
-                columns={"userId": "user_id"}
+                columns={
+                    "userId": "user_id"
+                }
             )
+
 
     if "movie_id" not in user_history_df.columns:
 
         if "movieId" in user_history_df.columns:
+
             user_history_df = user_history_df.rename(
-                columns={"movieId": "movie_id"}
+                columns={
+                    "movieId": "movie_id"
+                }
             )
 
 
     if (
         "user_id" in user_history_df.columns
-        and "movie_id" in user_history_df.columns
+        and
+        "movie_id" in user_history_df.columns
     ):
 
         for _, row in user_history_df.iterrows():
 
             uid = int(row["user_id"])
+
             mid = int(row["movie_id"])
 
+
             if uid not in user_history:
+
                 user_history[uid] = set()
+
 
             user_history[uid].add(mid)
 
@@ -132,13 +172,118 @@ user_liked_genres = {}
 
 
 # =========================================================
+# LOAD DATABASE HISTORY
+# =========================================================
+
+def load_database_history():
+
+    """
+    Загружает уже сохранённую историю feedback
+    из PostgreSQL.
+    """
+
+    if engine is None:
+        return
+
+
+    try:
+
+        with engine.begin() as connection:
+
+            result = connection.execute(
+                text("""
+                    SELECT
+                        user_id,
+                        movie_id,
+                        reward
+                    FROM feedback
+                    ORDER BY timestamp
+                """)
+            )
+
+
+            for row in result:
+
+                uid = int(row.user_id)
+
+                mid = int(row.movie_id)
+
+                reward = int(row.reward)
+
+
+                # -----------------------------------------
+                # USER HISTORY
+                # -----------------------------------------
+
+                if uid not in user_history:
+
+                    user_history[uid] = set()
+
+
+                user_history[uid].add(mid)
+
+
+                # -----------------------------------------
+                # LIKED GENRES
+                # -----------------------------------------
+
+                if reward == 1:
+
+                    movie_row = movies[
+                        movies["movie_id"] == mid
+                    ]
+
+
+                    if not movie_row.empty:
+
+                        genres = str(
+                            movie_row.iloc[0].get(
+                                "genres",
+                                ""
+                            )
+                        )
+
+
+                        if uid not in user_liked_genres:
+
+                            user_liked_genres[uid] = []
+
+
+                        for genre in genres.split("|"):
+
+                            if (
+                                genre
+                                and
+                                genre != "(no genres listed)"
+                                and
+                                genre not in user_liked_genres[uid]
+                            ):
+
+                                user_liked_genres[uid].append(
+                                    genre
+                                )
+
+    except Exception as error:
+
+        print(
+            "Database history loading error:",
+            error
+        )
+
+
+load_database_history()
+
+
+# =========================================================
 # FEEDBACK MODEL
 # =========================================================
 
 class Feedback(BaseModel):
 
     user_id: int
+
     item_id: int
+
     reward: int
 
 
@@ -151,6 +296,7 @@ def home():
 
     index_path = TEMPLATES / "index.html"
 
+
     if not index_path.exists():
 
         return """
@@ -158,9 +304,115 @@ def home():
         <p>index.html файлы табылмады.</p>
         """
 
+
     return index_path.read_text(
         encoding="utf-8"
     )
+
+
+# =========================================================
+# GET BANDIT DATA
+# =========================================================
+
+def get_bandit_stats():
+
+    """
+    Получает актуальные alpha/beta.
+
+    Если PostgreSQL содержит данные —
+    используем PostgreSQL.
+
+    Для фильмов, которых ещё нет в PostgreSQL,
+    используем начальные значения из CSV.
+    """
+
+    result = bandit_stats.copy()
+
+
+    if engine is None:
+
+        return result
+
+
+    try:
+
+        with engine.begin() as connection:
+
+            db_result = connection.execute(
+                text("""
+                    SELECT
+                        movie_id,
+                        alpha,
+                        beta
+                    FROM bandit_stats
+                """)
+            )
+
+
+            rows = db_result.fetchall()
+
+
+        if not rows:
+
+            return result
+
+
+        db_stats = pd.DataFrame(
+            [
+                {
+                    "movie_id": int(row.movie_id),
+                    "alpha": float(row.alpha),
+                    "beta": float(row.beta)
+                }
+
+                for row in rows
+            ]
+        )
+
+
+        # ---------------------------------------------
+        # PostgreSQL значения заменяют CSV значения
+        # ---------------------------------------------
+
+        result = result.drop(
+            columns=[
+                "alpha",
+                "beta"
+            ],
+            errors="ignore"
+        )
+
+
+        result = result.merge(
+            db_stats,
+            on="movie_id",
+            how="left"
+        )
+
+
+        result["alpha"] = (
+            result["alpha"]
+            .fillna(1.0)
+        )
+
+
+        result["beta"] = (
+            result["beta"]
+            .fillna(1.0)
+        )
+
+
+        return result
+
+
+    except Exception as error:
+
+        print(
+            "Database bandit loading error:",
+            error
+        )
+
+        return bandit_stats.copy()
 
 
 # =========================================================
@@ -174,18 +426,27 @@ def recommend(
 ):
 
     if k < 1:
+
         k = 10
 
-    # Уже просмотренные фильмы
+
+    # =====================================================
+    # USER HISTORY
+    # =====================================================
+
     watched = user_history.get(
         user_id,
         set()
     )
 
-    # Копия данных
+
+    # =====================================================
+    # CANDIDATES
+    # =====================================================
+
     candidates = movies.copy()
 
-    # Исключаем просмотренные
+
     if watched:
 
         candidates = candidates[
@@ -193,9 +454,15 @@ def recommend(
         ]
 
 
-    # Объединяем с alpha/beta
+    # =====================================================
+    # BANDIT DATA
+    # =====================================================
+
+    current_bandit_stats = get_bandit_stats()
+
+
     candidates = candidates.merge(
-        bandit_stats[
+        current_bandit_stats[
             [
                 "movie_id",
                 "alpha",
@@ -207,11 +474,11 @@ def recommend(
     )
 
 
-    # Если alpha/beta отсутствуют
     candidates["alpha"] = (
         candidates["alpha"]
         .fillna(1.0)
     )
+
 
     candidates["beta"] = (
         candidates["beta"]
@@ -224,15 +491,26 @@ def recommend(
     # =====================================================
 
     candidates["score"] = candidates.apply(
+
         lambda row: np.random.beta(
-            max(float(row["alpha"]), 0.01),
-            max(float(row["beta"]), 0.01)
+            max(
+                float(row["alpha"]),
+                0.01
+            ),
+            max(
+                float(row["beta"]),
+                0.01
+            )
         ),
+
         axis=1
     )
 
 
-    # Сортировка
+    # =====================================================
+    # SORT
+    # =====================================================
+
     candidates = candidates.sort_values(
         "score",
         ascending=False
@@ -242,8 +520,51 @@ def recommend(
     result = candidates.head(k)
 
 
-    # Формируем ответ
+    # =====================================================
+    # LOG IMPRESSIONS
+    # =====================================================
+
+    if engine is not None:
+
+        try:
+
+            with engine.begin() as connection:
+
+                for _, row in result.iterrows():
+
+                    connection.execute(
+                        text("""
+                            INSERT INTO impressions (
+                                user_id,
+                                movie_id
+                            )
+                            VALUES (
+                                :user_id,
+                                :movie_id
+                            )
+                        """),
+                        {
+                            "user_id": user_id,
+                            "movie_id": int(
+                                row["movie_id"]
+                            )
+                        }
+                    )
+
+        except Exception as error:
+
+            print(
+                "Impression logging error:",
+                error
+            )
+
+
+    # =====================================================
+    # RESPONSE
+    # =====================================================
+
     response = []
+
 
     for _, row in result.iterrows():
 
@@ -282,11 +603,16 @@ def recommend(
 def feedback(data: Feedback):
 
     user_id = int(data.user_id)
+
     item_id = int(data.item_id)
+
     reward = int(data.reward)
 
 
-    # Проверяем reward
+    # =====================================================
+    # CHECK REWARD
+    # =====================================================
+
     if reward not in [0, 1]:
 
         raise HTTPException(
@@ -295,7 +621,10 @@ def feedback(data: Feedback):
         )
 
 
-    # Проверяем фильм
+    # =====================================================
+    # CHECK MOVIE
+    # =====================================================
+
     movie_exists = (
         movies["movie_id"] == item_id
     ).any()
@@ -310,71 +639,275 @@ def feedback(data: Feedback):
 
 
     # =====================================================
-    # FIND BANDIT STATE
+    # NEW ALPHA / BETA
     # =====================================================
 
-    row_index = bandit_stats.index[
-        bandit_stats["movie_id"] == item_id
-    ]
+    new_alpha = None
+
+    new_beta = None
 
 
-    # Если фильма нет в bandit_stats
-    if len(row_index) == 0:
+    # =====================================================
+    # POSTGRESQL
+    # =====================================================
 
-        new_row = {
-            "movie_id": item_id,
-            "alpha": 1.0,
-            "beta": 1.0
-        }
+    if engine is not None:
 
-        bandit_stats.loc[
-            len(bandit_stats)
-        ] = new_row
+        try:
+
+            with engine.begin() as connection:
+
+                # -----------------------------------------
+                # 1. Получаем текущий bandit state
+                # -----------------------------------------
+
+                current = connection.execute(
+                    text("""
+                        SELECT
+                            alpha,
+                            beta
+                        FROM bandit_stats
+                        WHERE movie_id = :movie_id
+                    """),
+                    {
+                        "movie_id": item_id
+                    }
+                ).fetchone()
+
+
+                # -----------------------------------------
+                # 2. Если фильма ещё нет в БД,
+                #    берём начальные значения из CSV
+                # -----------------------------------------
+
+                if current is None:
+
+                    csv_row = bandit_stats[
+                        bandit_stats["movie_id"] == item_id
+                    ]
+
+
+                    if not csv_row.empty:
+
+                        old_alpha = float(
+                            csv_row.iloc[0]["alpha"]
+                        )
+
+                        old_beta = float(
+                            csv_row.iloc[0]["beta"]
+                        )
+
+                    else:
+
+                        old_alpha = 1.0
+
+                        old_beta = 1.0
+
+
+                    new_alpha = (
+                        old_alpha + reward
+                    )
+
+                    new_beta = (
+                        old_beta + (1 - reward)
+                    )
+
+
+                    connection.execute(
+                        text("""
+                            INSERT INTO bandit_stats (
+                                movie_id,
+                                alpha,
+                                beta
+                            )
+                            VALUES (
+                                :movie_id,
+                                :alpha,
+                                :beta
+                            )
+                        """),
+                        {
+                            "movie_id": item_id,
+                            "alpha": new_alpha,
+                            "beta": new_beta
+                        }
+                    )
+
+
+                # -----------------------------------------
+                # 3. Если фильм уже есть в БД —
+                #    атомарно увеличиваем alpha/beta
+                # -----------------------------------------
+
+                else:
+
+                    connection.execute(
+                        text("""
+                            UPDATE bandit_stats
+                            SET
+                                alpha = alpha + :reward,
+                                beta = beta + (1 - :reward),
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE movie_id = :movie_id
+                        """),
+                        {
+                            "movie_id": item_id,
+                            "reward": reward
+                        }
+                    )
+
+
+                    updated = connection.execute(
+                        text("""
+                            SELECT
+                                alpha,
+                                beta
+                            FROM bandit_stats
+                            WHERE movie_id = :movie_id
+                        """),
+                        {
+                            "movie_id": item_id
+                        }
+                    ).fetchone()
+
+
+                    new_alpha = float(
+                        updated.alpha
+                    )
+
+                    new_beta = float(
+                        updated.beta
+                    )
+
+
+                # -----------------------------------------
+                # 4. Сохраняем feedback
+                # -----------------------------------------
+
+                connection.execute(
+                    text("""
+                        INSERT INTO feedback (
+                            user_id,
+                            movie_id,
+                            reward
+                        )
+                        VALUES (
+                            :user_id,
+                            :movie_id,
+                            :reward
+                        )
+                    """),
+                    {
+                        "user_id": user_id,
+                        "movie_id": item_id,
+                        "reward": reward
+                    }
+                )
+
+
+                # -----------------------------------------
+                # 5. Обновляем impression
+                # -----------------------------------------
+
+                connection.execute(
+                    text("""
+                        UPDATE impressions
+                        SET reward = :reward
+                        WHERE id = (
+                            SELECT id
+                            FROM impressions
+                            WHERE user_id = :user_id
+                            AND movie_id = :movie_id
+                            AND reward IS NULL
+                            ORDER BY timestamp DESC
+                            LIMIT 1
+                        )
+                    """),
+                    {
+                        "user_id": user_id,
+                        "movie_id": item_id,
+                        "reward": reward
+                    }
+                )
+
+
+        except Exception as error:
+
+            raise HTTPException(
+                status_code=500,
+                detail=f"Database error: {error}"
+            )
+
+
+    # =====================================================
+    # LOCAL FALLBACK
+    # =====================================================
+
+    else:
 
         row_index = bandit_stats.index[
             bandit_stats["movie_id"] == item_id
         ]
 
 
-    idx = row_index[0]
+        if len(row_index) == 0:
+
+            new_row = {
+                "movie_id": item_id,
+                "alpha": 1.0,
+                "beta": 1.0
+            }
 
 
-    # =====================================================
-    # THOMPSON PARAMETERS UPDATE
-    # =====================================================
-
-    old_alpha = float(
-        bandit_stats.at[idx, "alpha"]
-    )
-
-    old_beta = float(
-        bandit_stats.at[idx, "beta"]
-    )
+            bandit_stats.loc[
+                len(bandit_stats)
+            ] = new_row
 
 
-    if reward == 1:
-
-        new_alpha = old_alpha + 1
-
-        new_beta = old_beta
-
-    else:
-
-        new_alpha = old_alpha
-
-        new_beta = old_beta + 1
+            row_index = bandit_stats.index[
+                bandit_stats["movie_id"] == item_id
+            ]
 
 
-    bandit_stats.at[
-        idx,
-        "alpha"
-    ] = new_alpha
+        idx = row_index[0]
 
 
-    bandit_stats.at[
-        idx,
-        "beta"
-    ] = new_beta
+        old_alpha = float(
+            bandit_stats.at[
+                idx,
+                "alpha"
+            ]
+        )
+
+
+        old_beta = float(
+            bandit_stats.at[
+                idx,
+                "beta"
+            ]
+        )
+
+
+        new_alpha = (
+            old_alpha + reward
+        )
+
+
+        new_beta = (
+            old_beta + (1 - reward)
+        )
+
+
+        bandit_stats.at[
+            idx,
+            "alpha"
+        ] = new_alpha
+
+
+        bandit_stats.at[
+            idx,
+            "beta"
+        ] = new_beta
 
 
     # =====================================================
@@ -419,8 +952,10 @@ def feedback(data: Feedback):
 
             if (
                 genre
-                and genre != "(no genres listed)"
-                and genre not in user_liked_genres[user_id]
+                and
+                genre != "(no genres listed)"
+                and
+                genre not in user_liked_genres[user_id]
             ):
 
                 user_liked_genres[user_id].append(
@@ -462,10 +997,14 @@ def final_recommend(
 ):
 
     if k < 1:
+
         k = 5
 
 
-    # Просмотренные фильмы
+    # =====================================================
+    # HISTORY
+    # =====================================================
+
     watched = user_history.get(
         user_id,
         set()
@@ -475,7 +1014,6 @@ def final_recommend(
     candidates = movies.copy()
 
 
-    # Исключаем просмотренные
     if watched:
 
         candidates = candidates[
@@ -487,8 +1025,11 @@ def final_recommend(
     # BANDIT DATA
     # =====================================================
 
+    current_bandit_stats = get_bandit_stats()
+
+
     candidates = candidates.merge(
-        bandit_stats[
+        current_bandit_stats[
             [
                 "movie_id",
                 "alpha",
@@ -579,7 +1120,9 @@ def final_recommend(
 
     candidates["genre_score"] = (
         candidates["genres"]
-        .apply(calculate_genre_score)
+        .apply(
+            calculate_genre_score
+        )
     )
 
 
@@ -600,7 +1143,10 @@ def final_recommend(
     )
 
 
-    # Сортировка
+    # =====================================================
+    # SORT
+    # =====================================================
+
     candidates = candidates.sort_values(
         "final_score",
         ascending=False
@@ -661,6 +1207,28 @@ def final_recommend(
 @app.get("/health")
 def health():
 
+    database_status = "not connected"
+
+
+    if engine is not None:
+
+        try:
+
+            with engine.begin() as connection:
+
+                connection.execute(
+                    text("SELECT 1")
+                )
+
+
+            database_status = "connected"
+
+
+        except Exception:
+
+            database_status = "error"
+
+
     return {
 
         "status": "ok",
@@ -669,6 +1237,9 @@ def health():
             "recommendation-system",
 
         "algorithm":
-            "Thompson Sampling"
+            "Thompson Sampling",
+
+        "database":
+            database_status
 
     }
