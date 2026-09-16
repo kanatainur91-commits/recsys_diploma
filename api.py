@@ -1,77 +1,170 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 import pandas as pd
 import numpy as np
+from pathlib import Path
 
 
 # =========================================================
-# FASTAPI
+# APPLICATION
 # =========================================================
 
 app = FastAPI(
-    title="Зияткерлік ұсыныстар жүйесі",
-    description="Thompson Sampling негізіндегі фильмдер ұсыныс жүйесі"
+    title="Интеллектуалды ұсыныстар жүйесі",
+    description="Thompson Sampling негізіндегі фильмдер ұсынысы",
+    version="1.0"
 )
 
 
 # =========================================================
-# ДЕРЕКТЕРДІ ЖҮКТЕУ
+# PATHS
 # =========================================================
 
-movies = pd.read_csv(
-    "public_data/movies.csv"
-)
+BASE_DIR = Path(__file__).resolve().parent
 
-bandit_stats = pd.read_csv(
-    "public_data/bandit_stats.csv"
-)
-
-user_history_df = pd.read_csv(
-    "public_data/user_history.csv"
-)
+PUBLIC_DATA = BASE_DIR / "public_data"
+TEMPLATES = BASE_DIR / "templates"
 
 
 # =========================================================
-# ПАЙДАЛАНУШЫ ТАРИХЫ
+# LOAD DATA
+# =========================================================
+
+movies_path = PUBLIC_DATA / "movies.csv"
+bandit_path = PUBLIC_DATA / "bandit_stats.csv"
+history_path = PUBLIC_DATA / "user_history.csv"
+
+
+movies = pd.read_csv(movies_path)
+bandit_stats = pd.read_csv(bandit_path)
+user_history_df = pd.read_csv(history_path)
+
+
+# =========================================================
+# PREPARE MOVIE DATA
+# =========================================================
+
+# Проверяем название ID фильма
+if "movie_id" not in movies.columns:
+
+    if "movieId" in movies.columns:
+        movies = movies.rename(
+            columns={"movieId": "movie_id"}
+        )
+
+    elif "id" in movies.columns:
+        movies = movies.rename(
+            columns={"id": "movie_id"}
+        )
+
+
+# =========================================================
+# PREPARE BANDIT DATA
+# =========================================================
+
+if "movie_id" not in bandit_stats.columns:
+
+    if "movieId" in bandit_stats.columns:
+        bandit_stats = bandit_stats.rename(
+            columns={"movieId": "movie_id"}
+        )
+
+    elif "id" in bandit_stats.columns:
+        bandit_stats = bandit_stats.rename(
+            columns={"id": "movie_id"}
+        )
+
+
+# Если alpha/beta отсутствуют, создаём их
+if "alpha" not in bandit_stats.columns:
+    bandit_stats["alpha"] = 1.0
+
+if "beta" not in bandit_stats.columns:
+    bandit_stats["beta"] = 1.0
+
+
+# =========================================================
+# USER HISTORY
 # =========================================================
 
 user_history = {}
 
-for user_id, group in user_history_df.groupby("userId"):
+if not user_history_df.empty:
 
-    user_history[int(user_id)] = set(
-        group["movieId"].astype(int)
-    )
+    # Возможные названия столбцов
+    if "user_id" not in user_history_df.columns:
+
+        if "userId" in user_history_df.columns:
+            user_history_df = user_history_df.rename(
+                columns={"userId": "user_id"}
+            )
+
+    if "movie_id" not in user_history_df.columns:
+
+        if "movieId" in user_history_df.columns:
+            user_history_df = user_history_df.rename(
+                columns={"movieId": "movie_id"}
+            )
+
+
+    if (
+        "user_id" in user_history_df.columns
+        and "movie_id" in user_history_df.columns
+    ):
+
+        for _, row in user_history_df.iterrows():
+
+            uid = int(row["user_id"])
+            mid = int(row["movie_id"])
+
+            if uid not in user_history:
+                user_history[uid] = set()
+
+            user_history[uid].add(mid)
 
 
 # =========================================================
-# ПАЙДАЛАНУШЫНЫҢ ҰНАМДЫ ЖАНРЛАРЫ
+# USER PREFERENCES
 # =========================================================
 
 user_liked_genres = {}
 
 
 # =========================================================
-# БАСТЫ БЕТ
+# FEEDBACK MODEL
 # =========================================================
 
-@app.get(
-    "/",
-    response_class=HTMLResponse
-)
+class Feedback(BaseModel):
+
+    user_id: int
+    item_id: int
+    reward: int
+
+
+# =========================================================
+# MAIN PAGE
+# =========================================================
+
+@app.get("/", response_class=HTMLResponse)
 def home():
 
-    with open(
-        "templates/index.html",
-        "r",
-        encoding="utf-8"
-    ) as file:
+    index_path = TEMPLATES / "index.html"
 
-        return file.read()
+    if not index_path.exists():
+
+        return """
+        <h1>Қате</h1>
+        <p>index.html файлы табылмады.</p>
+        """
+
+    return index_path.read_text(
+        encoding="utf-8"
+    )
 
 
 # =========================================================
-# БАСТАПҚЫ ҰСЫНЫСТАР
+# RECOMMEND
 # =========================================================
 
 @app.get("/recommend")
@@ -80,90 +173,135 @@ def recommend(
     k: int = 10
 ):
 
-    # Пайдаланушы бұрын көрген фильмдер
+    if k < 1:
+        k = 10
+
+    # Уже просмотренные фильмы
     watched = user_history.get(
         user_id,
         set()
     )
 
+    # Копия данных
+    candidates = movies.copy()
 
-    # Бұрын көрілмеген фильмдерді аламыз
-    available = bandit_stats[
-        ~bandit_stats["movieId"].isin(watched)
-    ].copy()
+    # Исключаем просмотренные
+    if watched:
+
+        candidates = candidates[
+            ~candidates["movie_id"].isin(watched)
+        ]
 
 
-    if available.empty:
+    # Объединяем с alpha/beta
+    candidates = candidates.merge(
+        bandit_stats[
+            [
+                "movie_id",
+                "alpha",
+                "beta"
+            ]
+        ],
+        on="movie_id",
+        how="left"
+    )
 
-        raise HTTPException(
-            status_code=404,
-            detail="Бұл пайдаланушы үшін фильмдер табылмады"
-        )
+
+    # Если alpha/beta отсутствуют
+    candidates["alpha"] = (
+        candidates["alpha"]
+        .fillna(1.0)
+    )
+
+    candidates["beta"] = (
+        candidates["beta"]
+        .fillna(1.0)
+    )
 
 
     # =====================================================
     # THOMPSON SAMPLING
     # =====================================================
 
-    available["score"] = np.random.beta(
-        available["alpha"],
-        available["beta"]
+    candidates["score"] = candidates.apply(
+        lambda row: np.random.beta(
+            max(float(row["alpha"]), 0.01),
+            max(float(row["beta"]), 0.01)
+        ),
+        axis=1
     )
 
 
-    # Ең жоғары Thompson score
-    recommendations = available.nlargest(
-        k,
-        "score"
+    # Сортировка
+    candidates = candidates.sort_values(
+        "score",
+        ascending=False
     )
 
 
-    # Фильмдер туралы ақпаратты қосамыз
-    result = recommendations.merge(
-        movies,
-        on="movieId"
-    )
+    result = candidates.head(k)
 
 
-    return result[
-        [
-            "movieId",
-            "title",
-            "genres",
-            "score"
-        ]
-    ].to_dict(
-        orient="records"
-    )
+    # Формируем ответ
+    response = []
+
+    for _, row in result.iterrows():
+
+        response.append({
+
+            "movie_id": int(
+                row["movie_id"]
+            ),
+
+            "title": str(
+                row["title"]
+            ),
+
+            "genres": str(
+                row.get(
+                    "genres",
+                    ""
+                )
+            ),
+
+            "score": float(
+                row["score"]
+            )
+
+        })
+
+
+    return response
 
 
 # =========================================================
-# КЕРІ БАЙЛАНЫС
+# FEEDBACK
 # =========================================================
 
 @app.post("/feedback")
-def feedback(
-    user_id: int,
-    item_id: int,
-    reward: int
-):
+def feedback(data: Feedback):
 
-    # Reward тек 0 немесе 1 болуы керек
+    user_id = int(data.user_id)
+    item_id = int(data.item_id)
+    reward = int(data.reward)
+
+
+    # Проверяем reward
     if reward not in [0, 1]:
 
         raise HTTPException(
             status_code=400,
-            detail="Reward 0 немесе 1 болуы керек"
+            detail="Reward must be 0 or 1"
         )
 
 
-    # Фильмді іздеу
-    index = bandit_stats.index[
-        bandit_stats["movieId"] == item_id
-    ]
+    # Проверяем фильм
+    movie_exists = (
+        movies["movie_id"] == item_id
+    ).any()
 
 
-    if len(index) == 0:
+    if not movie_exists:
 
         raise HTTPException(
             status_code=404,
@@ -171,30 +309,76 @@ def feedback(
         )
 
 
-    index = index[0]
+    # =====================================================
+    # FIND BANDIT STATE
+    # =====================================================
+
+    row_index = bandit_stats.index[
+        bandit_stats["movie_id"] == item_id
+    ]
+
+
+    # Если фильма нет в bandit_stats
+    if len(row_index) == 0:
+
+        new_row = {
+            "movie_id": item_id,
+            "alpha": 1.0,
+            "beta": 1.0
+        }
+
+        bandit_stats.loc[
+            len(bandit_stats)
+        ] = new_row
+
+        row_index = bandit_stats.index[
+            bandit_stats["movie_id"] == item_id
+        ]
+
+
+    idx = row_index[0]
 
 
     # =====================================================
-    # THOMPSON SAMPLING ПАРАМЕТРЛЕРІН ЖАҢАРТУ
+    # THOMPSON PARAMETERS UPDATE
     # =====================================================
+
+    old_alpha = float(
+        bandit_stats.at[idx, "alpha"]
+    )
+
+    old_beta = float(
+        bandit_stats.at[idx, "beta"]
+    )
+
 
     if reward == 1:
 
-        bandit_stats.loc[
-            index,
-            "alpha"
-        ] += 1
+        new_alpha = old_alpha + 1
+
+        new_beta = old_beta
 
     else:
 
-        bandit_stats.loc[
-            index,
-            "beta"
-        ] += 1
+        new_alpha = old_alpha
+
+        new_beta = old_beta + 1
+
+
+    bandit_stats.at[
+        idx,
+        "alpha"
+    ] = new_alpha
+
+
+    bandit_stats.at[
+        idx,
+        "beta"
+    ] = new_beta
 
 
     # =====================================================
-    # ПАЙДАЛАНУШЫ ТАРИХЫНА ҚОСУ
+    # USER HISTORY
     # =====================================================
 
     if user_id not in user_history:
@@ -208,80 +392,67 @@ def feedback(
 
 
     # =====================================================
-    # ҰНАҒАН ФИЛЬМНІҢ ЖАНРЛАРЫН САҚТАУ
+    # LIKED GENRES
     # =====================================================
 
     if reward == 1:
 
-        movie_info = movies[
-            movies["movieId"] == item_id
-        ]
+        movie_row = movies[
+            movies["movie_id"] == item_id
+        ].iloc[0]
 
 
-        if not movie_info.empty:
-
-            genres = str(
-                movie_info.iloc[0]["genres"]
+        genres = str(
+            movie_row.get(
+                "genres",
+                ""
             )
+        )
 
 
-            if user_id not in user_liked_genres:
+        if user_id not in user_liked_genres:
 
-                user_liked_genres[user_id] = []
+            user_liked_genres[user_id] = []
 
 
-            for genre in genres.split("|"):
+        for genre in genres.split("|"):
 
-                if (
+            if (
+                genre
+                and genre != "(no genres listed)"
+                and genre not in user_liked_genres[user_id]
+            ):
+
+                user_liked_genres[user_id].append(
                     genre
-                    and genre != "(no genres listed)"
-                    and genre not in user_liked_genres[user_id]
-                ):
-
-                    user_liked_genres[user_id].append(
-                        genre
-                    )
+                )
 
 
     # =====================================================
-    # ЖАУАП
+    # RESPONSE
     # =====================================================
 
     return {
 
-        "message":
-            "Баға сәтті сақталды",
+        "status": "success",
 
-        "user_id":
-            user_id,
+        "message": "Баға сәтті қабылданды",
 
-        "item_id":
-            item_id,
+        "user_id": user_id,
 
-        "reward":
-            reward,
+        "item_id": item_id,
 
-        "alpha":
-            float(
-                bandit_stats.loc[
-                    index,
-                    "alpha"
-                ]
-            ),
+        "reward": reward,
 
-        "beta":
-            float(
-                bandit_stats.loc[
-                    index,
-                    "beta"
-                ]
-            )
+        "alpha": new_alpha,
+
+        "beta": new_beta
 
     }
 
 
 # =========================================================
-# ҚОРЫТЫНДЫ ҰСЫНЫСТАР
+# FINAL RECOMMENDATIONS
 # =========================================================
 
 @app.get("/final-recommend")
@@ -290,18 +461,83 @@ def final_recommend(
     k: int = 5
 ):
 
-    # =====================================================
-    # ПАЙДАЛАНУШЫ ТАРИХЫ
-    # =====================================================
+    if k < 1:
+        k = 5
 
+
+    # Просмотренные фильмы
     watched = user_history.get(
         user_id,
         set()
     )
 
 
+    candidates = movies.copy()
+
+
+    # Исключаем просмотренные
+    if watched:
+
+        candidates = candidates[
+            ~candidates["movie_id"].isin(watched)
+        ]
+
+
     # =====================================================
-    # ҰНАМДЫ ЖАНРЛАР
+    # BANDIT DATA
+    # =====================================================
+
+    candidates = candidates.merge(
+        bandit_stats[
+            [
+                "movie_id",
+                "alpha",
+                "beta"
+            ]
+        ],
+        on="movie_id",
+        how="left"
+    )
+
+
+    candidates["alpha"] = (
+        candidates["alpha"]
+        .fillna(1.0)
+    )
+
+
+    candidates["beta"] = (
+        candidates["beta"]
+        .fillna(1.0)
+    )
+
+
+    # =====================================================
+    # THOMPSON SAMPLING
+    # =====================================================
+
+    candidates["thompson_score"] = candidates.apply(
+
+        lambda row: np.random.beta(
+
+            max(
+                float(row["alpha"]),
+                0.01
+            ),
+
+            max(
+                float(row["beta"]),
+                0.01
+            )
+
+        ),
+
+        axis=1
+    )
+
+
+    # =====================================================
+    # GENRE MATCH
     # =====================================================
 
     liked_genres = user_liked_genres.get(
@@ -310,54 +546,11 @@ def final_recommend(
     )
 
 
-    # =====================================================
-    # ҚОЛЖЕТІМДІ ФИЛЬМДЕР
-    # =====================================================
-
-    available = bandit_stats[
-        ~bandit_stats["movieId"].isin(watched)
-    ].copy()
-
-
-    if available.empty:
-
-        raise HTTPException(
-            status_code=404,
-            detail="Жаңа фильмдер табылмады"
-        )
-
-
-    # =====================================================
-    # THOMPSON SAMPLING
-    # =====================================================
-
-    available["thompson_score"] = np.random.beta(
-        available["alpha"],
-        available["beta"]
-    )
-
-
-    # =====================================================
-    # ФИЛЬМ АҚПАРАТЫН ҚОСУ
-    # =====================================================
-
-    result = available.merge(
-        movies,
-        on="movieId"
-    )
-
-
-    # =====================================================
-    # ЖАНР СӘЙКЕСТІГІ
-    # =====================================================
-
-    def calculate_genre_match(
-        genres
-    ):
+    def calculate_genre_score(genres):
 
         if not liked_genres:
 
-            return 0
+            return 0.0
 
 
         movie_genres = str(
@@ -365,94 +558,117 @@ def final_recommend(
         ).split("|")
 
 
-        matches = 0
+        if not movie_genres:
+
+            return 0.0
 
 
-        for genre in movie_genres:
+        matches = sum(
 
-            if genre in liked_genres:
+            1
 
-                matches += 1
+            for genre in movie_genres
+
+            if genre in liked_genres
+
+        )
 
 
-        return matches
+        return matches / len(movie_genres)
 
 
-    result["genre_match"] = result[
-        "genres"
-    ].apply(
-        calculate_genre_match
+    candidates["genre_score"] = (
+        candidates["genres"]
+        .apply(calculate_genre_score)
     )
 
 
     # =====================================================
-    # ЖАНР СӘЙКЕСТІГІН 0-1 АРАЛЫҒЫНА АУЫСТЫРУ
+    # FINAL SCORE
     # =====================================================
 
-    if liked_genres:
+    candidates["final_score"] = (
 
-        result["genre_score"] = (
-            result["genre_match"]
-            /
-            max(len(liked_genres), 1)
-        )
-
-    else:
-
-        result["genre_score"] = 0
-
-
-    # =====================================================
-    # ҚОРЫТЫНДЫ ҰПАЙ
-    #
-    # 70% — Thompson Sampling
-    # 30% — пайдаланушы жанрларының сәйкестігі
-    # =====================================================
-
-    result["final_score"] = (
-
-        result["thompson_score"] * 0.7
+        0.7 *
+        candidates["thompson_score"]
 
         +
 
-        result["genre_score"] * 0.3
+        0.3 *
+        candidates["genre_score"]
 
     )
+
+
+    # Сортировка
+    candidates = candidates.sort_values(
+        "final_score",
+        ascending=False
+    )
+
+
+    result = candidates.head(k)
 
 
     # =====================================================
-    # ЕҢ ЖОҒАРЫ ҚОРЫТЫНДЫ ҰПАЙЛАР
+    # RESPONSE
     # =====================================================
 
-    recommendations = result.nlargest(
-        k,
-        "final_score"
-    )
+    response = []
 
 
-    return recommendations[
-        [
-            "movieId",
-            "title",
-            "genres",
-            "thompson_score",
-            "genre_score",
-            "final_score"
-        ]
-    ].to_dict(
-        orient="records"
-    )
+    for _, row in result.iterrows():
+
+        response.append({
+
+            "movie_id": int(
+                row["movie_id"]
+            ),
+
+            "title": str(
+                row["title"]
+            ),
+
+            "genres": str(
+                row.get(
+                    "genres",
+                    ""
+                )
+            ),
+
+            "thompson_score": float(
+                row["thompson_score"]
+            ),
+
+            "genre_score": float(
+                row["genre_score"]
+            ),
+
+            "final_score": float(
+                row["final_score"]
+            )
+
+        })
+
+
+    return response
 
 
 # =========================================================
-# СЕРВЕРДІ ТЕКСЕРУ
+# HEALTH CHECK
 # =========================================================
 
 @app.get("/health")
 def health():
 
     return {
-        "status": "ok",
-        "message": "Сервер жұмыс істеп тұр"
-    }
 
+        "status": "ok",
+
+        "service":
+            "recommendation-system",
+
+        "algorithm":
+            "Thompson Sampling"
+
+    }
